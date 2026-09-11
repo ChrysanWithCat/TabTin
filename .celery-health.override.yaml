@@ -1,0 +1,12 @@
+services:
+  celery:
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'celery -A tabtin inspect ping --timeout=20 | grep -q pong || exit 1',
+        ]
+      interval: 30s
+      timeout: 25s
+      retries: 3
+      start_period: 300s
