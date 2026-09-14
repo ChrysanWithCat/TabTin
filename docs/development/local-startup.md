@@ -16,7 +16,7 @@
 | Redis | 仓库外基础服务 | Podman 容器 `tabtin-community-redis-1` | 仅容器内网 | 缓存、Celery broker、Channels/Centrifugo 依赖。 | 已启动 |
 | Electron 桌面端 | `apps/tabtin-electron` | 本机 Node/Electron | 渲染页 `127.0.0.1:5175` | TabTin 桌面客户端（Agent 工作平台），联调时由 electron-vite 启动，自动连接 `6060` API 与 `8100` 实时通道。 | 已启动 |
 | AdminDash 管理端 | `apps/admindash` | 本机 Node/Vite | `127.0.0.1:5174` | 运营/管理后台 Web 界面（模型、账号、组织、表格、文档、OSS、账单等），本地 Vite 把 `/api` 等请求代理到 `6060`。 | 已启动 |
-| Collab Live 实时协作服务 | `apps/collab-live` | 本机 Node（官方流程，未容器化） | `127.0.0.1:4100` | 统一实时协作服务（Hocuspocus / Y.js WebSocket Server），负责文档、表格、演示文稿的多人实时协同编辑。 | 未启动（可选） |
+| Collab Live 实时协作服务 | `apps/collab-live` | 本机 Node（官方流程，未容器化） | `127.0.0.1:4100` | 统一实时协作服务（Hocuspocus / Y.js WebSocket Server），负责文档、表格、演示文稿的多人实时协同编辑。 | 可选启动（见 3.5） |
 | tabtin-web 在线平台 | `apps/tabtin-web` | 本机 Node/Vite | `127.0.0.1:5176` | 云上桌面 / 在线平台入口，也是公开分享页面的宿主；全量预览会启动它。本方案不启动。 | 未启动 |
 | tabtin-daemon Agent 守护进程 | `apps/tabtin-daemon` | 独立进程（本地或远程无头机） | 由 `start` 子命令启动 | Agent Daemon：无界面执行运行时，供远程服务器 / 无人值守场景承载 Agent 任务与设备控制。桌面端可管理并与之协作。 | 未启动 |
 | TabTin Android 客户端 | `apps/tabtin-android` | Android Studio / Gradle | Debug APK | 移动端配套客户端，用于在手机上查看、发起或控制桌面 Agent 任务（不独立执行 Agent）。 | 未启动 |
@@ -135,6 +135,62 @@ pnpm --filter tabtin-electron dev
 
 > 提示：也可以使用 `node scripts/dev.mjs electron`，但注意 `node scripts/dev.mjs admindash` 内部只等 60 秒健康检查，首次构建较慢时父进程会先报失败（Vite 子进程通常会继续运行）；需要稳定前台管理时建议直接使用上面的 `pnpm --filter ... dev`。
 
+### 3.5 启动 Collab Live 实时协作服务（可选，本机）
+
+只有需要验证 **TabDoc / TabData / TabSlide 等多人实时协同编辑** 时才需要启动 Collab Live；普通登录、管理后台、IM、Agent 会话等功能不依赖它。
+
+启动前先确认 3.2 的 Django 服务端已经健康，因为 Collab Live 会通过 `DJANGO_API_URL` 调用 Django 做协作鉴权和数据读写。
+
+推荐使用仓库提供的 Windows 脚本启动：
+
+```powershell
+scripts\backend\collab-live-start.bat
+```
+
+该脚本会自动完成以下事情：
+
+- 读取仓库根目录 `.env` 与 `scripts\backend\_dev-env.bat` 中的本地开发端口配置；默认 `DJANGO_BIND_PORT=6060`、`COLLAB_LIVE_PORT=4100`。
+- 预构建 `collab-live` 所需 workspace 依赖。
+- 清理已占用的 `4100` 端口。
+- 设置 `NODE_ENV=development`、`PORT=4100`、`DJANGO_API_URL=http://127.0.0.1:6060`。
+- 在后台启动 `apps/collab-live`，实际执行的是 `pnpm exec tsx src/start.ts`。
+- 日志写入 `apps\tabtin_django\logs\collab-live.log` 和 `apps\tabtin_django\logs\collab-live.error.log`，PID 写入 `apps\tabtin_django\logs\collab-live.pid`。
+
+启动后检查健康：
+
+```powershell
+Invoke-WebRequest -UseBasicParsing http://127.0.0.1:4100/health
+```
+
+期望返回：
+
+```json
+{"status":"ok"}
+```
+
+Collab Live 对外提供的本地 WebSocket 端点如下：
+
+| 类型 | 地址 |
+| --- | --- |
+| 文档协作 | `ws://127.0.0.1:4100/collaboration` |
+| 表格协作 | `ws://127.0.0.1:4100/table-collaboration` |
+| 演示文稿协作 | `ws://127.0.0.1:4100/slide-collaboration` |
+| 视频协作 | `ws://127.0.0.1:4100/video-collaboration` |
+| 画布协作 | `ws://127.0.0.1:4100/canvas-collaboration` |
+
+Electron 渲染端默认会从 `apps/tabtin-electron/src/renderer/src/config/api.ts` 使用 `ws://localhost:4100` 拼出这些协作地址；如果需要局域网设备访问，可在 Electron 的本地环境文件中显式配置 `VITE_COLLAB_WS_BASE=ws://<YOUR_LAN_IP>:4100`。
+
+如需前台调试 Collab Live，也可以另开 PowerShell 手动运行：
+
+```powershell
+$env:NODE_ENV = 'development'
+$env:PORT = '4100'
+$env:DJANGO_API_URL = 'http://127.0.0.1:6060'
+pnpm --filter collab-live start
+```
+
+> 注意：`apps/collab-live/package.json` 里的 `dev` 脚本使用 `NODE_ENV=development tsx watch ...` 这种 POSIX 写法，在 Windows PowerShell 下不如上面的 `.bat` 脚本稳定；本机 Windows 推荐优先使用 `scripts\backend\collab-live-start.bat`。
+
 ## 4. 验证清单
 
 启动完成后逐项确认：
@@ -146,21 +202,34 @@ pnpm --filter tabtin-electron dev
 | Django 健康 | <http://127.0.0.1:6060/health> | 200 |
 | Django 就绪 | <http://127.0.0.1:6060/health/ready> | 200 |
 | Centrifugo 健康 | <http://127.0.0.1:8100/health> | 200 |
+| Collab Live 健康（可选） | <http://127.0.0.1:4100/health> | 200，返回 `{"status":"ok"}` |
 | 桌面端窗口 | 本机 | `TabTin - AI 工作平台` 窗口已打开 |
 
 PowerShell 一键检查：
 
 ```powershell
-foreach ($u in @('http://127.0.0.1:5174/','http://127.0.0.1:5175/','http://127.0.0.1:6060/health','http://127.0.0.1:6060/health/ready','http://127.0.0.1:8100/health')) {
+foreach ($u in @('http://127.0.0.1:5174/','http://127.0.0.1:5175/','http://127.0.0.1:6060/health','http://127.0.0.1:6060/health/ready','http://127.0.0.1:8100/health','http://127.0.0.1:4100/health')) {
   try { (Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 $u).StatusCode } catch { "FAIL $u" }
 }
 ```
+
+> 如果没有执行 3.5 启动 Collab Live，`http://127.0.0.1:4100/health` 显示 `FAIL` 是正常的。
 
 ## 5. 停止
 
 ### 停止本机前端
 
-在运行 AdminDash / Electron 的 PowerShell 里分别按 `Ctrl+C`。
+在运行 AdminDash / Electron 的 PowerShell 里分别按 `Ctrl+C`。如果 Collab Live 是用前台方式启动的，也在对应 PowerShell 里按 `Ctrl+C`。
+
+### 停止 Collab Live（可选）
+
+如果使用 `scripts\backend\collab-live-start.bat` 后台启动，可在仓库根目录执行：
+
+```powershell
+scripts\backend\collab-live-stop.bat
+```
+
+该脚本会按 `COLLAB_LIVE_PORT` 清理本机 `4100` 端口上的 Collab Live 进程。
 
 ### 停止 Podman 服务端
 
@@ -176,7 +245,7 @@ docker compose -f compose.yaml -f compose.community-dev.yaml -f .celery-health.o
 ## 6. 注意事项
 
 1. **Celery 健康检查**：必须带 `.celery-health.override.yaml` 启动，否则 Celery 容器在 Podman 下会一直显示 `unhealthy`（原因见 3.2）。
-2. **Collab Live**：仓库没有 Collab 的容器化定义。需要文档/表格实时协作时，可按官方本地方式单独启动：`scripts\backend\collab-live-start.bat`（运行在 `4100`），或先为它补充容器配置。
+2. **Collab Live**：仓库没有 Collab 的容器化定义。需要文档/表格/演示文稿实时协作时，按 3.5 使用官方本地脚本 `scripts\backend\collab-live-start.bat` 单独启动（运行在 `4100`）；不需要实时协作时可以不启动。
 3. **Python**：本说明的服务端运行在容器内（Python 3.11），不依赖本机 Python；本机只需 Node/pnpm。
 4. **数据持久化**：账号与业务数据在 Podman 数据卷中，重新 `up -d` 不会丢数据。
 5. **首次构建较慢**：workspace 预构建、Django 镜像构建或首次容器迁移都需要数分钟，属正常现象。
