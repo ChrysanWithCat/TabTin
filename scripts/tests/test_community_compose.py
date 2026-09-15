@@ -8,6 +8,8 @@ import stat
 import subprocess
 import tempfile
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[2]
 COMPOSE_FILE = ROOT / "compose.yaml"
@@ -166,6 +168,28 @@ def test_official_community_installation_has_one_five_service_interface() -> Non
     ):
         assert forbidden not in raw_manifest
         assert forbidden not in resolved
+
+
+def test_community_celery_consumes_memory_distillation_queue() -> None:
+    compose = yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))
+    queues = {
+        queue.strip()
+        for queue in compose["services"]["celery"]["environment"]["CELERY_QUEUES"].split(
+            ","
+        )
+    }
+
+    assert "heavy" in queues
+
+
+def test_community_celery_healthcheck_does_not_depend_on_hostname_env() -> None:
+    compose = yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))
+    healthcheck_command = " ".join(
+        compose["services"]["celery"]["healthcheck"]["test"]
+    )
+
+    assert "inspect ping" in healthcheck_command
+    assert "HOSTNAME" not in healthcheck_command
 
 
 def test_compose_reads_the_edition_from_the_explicit_env_file() -> None:

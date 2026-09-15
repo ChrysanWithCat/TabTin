@@ -135,7 +135,7 @@ services:
     command: ['worker']
     environment:
       <<: *django-environment
-      CELERY_QUEUES: default,critical
+      CELERY_QUEUES: default,critical,heavy
       CELERY_CONCURRENCY: '2'
       CELERY_PREFETCH_MULTIPLIER: '1'
       CELERY_MAX_MEMORY: '700000'
@@ -149,7 +149,7 @@ services:
       test:
         [
           'CMD-SHELL',
-          'celery -A tabtin inspect ping -d celery@$$HOSTNAME --timeout=5 | grep -q pong',
+          'celery -A tabtin inspect ping --timeout=5 | grep -q pong',
         ]
       interval: 20s
       timeout: 10s
