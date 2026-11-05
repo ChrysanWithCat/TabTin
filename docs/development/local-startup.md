@@ -144,7 +144,8 @@ pnpm --filter tabtin-electron dev
 推荐使用仓库提供的 Windows 脚本启动：
 
 ```powershell
-scripts\backend\collab-live-start.bat
+feat
+
 ```
 
 该脚本会自动完成以下事情：
